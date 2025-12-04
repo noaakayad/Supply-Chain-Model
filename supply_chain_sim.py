@@ -1,6 +1,7 @@
 import math
 import random
 import matplotlib.pyplot as plt
+random.seed(0)
 
 PRODUCTS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12"]
 
@@ -92,6 +93,7 @@ class Factory:
                 self.stock[product] += 1
                 self.production_per_day[day_index] += 1
 
+    #store orders that will be immediately processed and those that will need to wait
     def receive_order(self, distributor_name, product, quantity, current_day):
         order = {
             "distributor": distributor_name,
@@ -101,6 +103,7 @@ class Factory:
         }
         self.pending_orders.append(order)
 
+    #process as many orders as possible given current stock
     def process_orders(self, current_day):
         #orders we couldn’t fulfill today
         next_orders = []
@@ -155,6 +158,7 @@ class Distributor:
         self.stock_total_per_day = []
         self.missed_demand_per_day = {d: 0 for d in range(TOTAL_DAYS)}
 
+    #wholesaler orders are processed immediately (no delivery delay and no backorders)
     def receive_wholesaler_order(self, product, day_index):
         self.wholesaler_orders_per_day[day_index] += 1
         if self.stock.get(product) > 0:
