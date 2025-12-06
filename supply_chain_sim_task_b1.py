@@ -482,7 +482,7 @@ if __name__ == "__main__":
         print(entry)
     plt.figure(figsize=(12,6))
     plt.step(sim.time, sim.stock_per_time, where='post', marker='o', label="D1 Stock", linewidth=2)
-    plt.title("Stock of Distributor D1 with task a1")
+    plt.title("Stock of Distributor D1 with task b1")
     plt.xlabel("Hours")
     plt.ylabel("Units")
     plt.grid(True)
