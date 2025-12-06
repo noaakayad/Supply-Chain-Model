@@ -378,7 +378,7 @@ class Simulation:
             for dist in self.distributors.values():
                 dist.plan_initial_stock_order(day)
         else:
-            #collect missed demand + sold stock
+            #collect missed demand
             for dist in self.distributors.values():
                 dist.collect_missed_demand_into_orders()
 
