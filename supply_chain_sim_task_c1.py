@@ -51,7 +51,6 @@ class Distributor:
         self.name = name
         self.stock = {p: 0 for p in PRODUCTS}
         self.missed_wholesaler_orders = {p: 0 for p in PRODUCTS}
-        self.stock_sold_to_reorder = {p: 0 for p in PRODUCTS}
         self.orders_for_factories = []
         self.postponed_orders = []
 
@@ -64,8 +63,6 @@ class Distributor:
     def receive_wholesaler_order(self, product, current_time, day_index, log_fn):
         if self.stock.get(product) > 0:
             self.stock[product] -= 1
-            if self.stock_sold_to_reorder[product] == 0:
-                self.stock_sold_to_reorder[product] = 2
             self.sales_per_day[day_index][product] += 1
             if self.name == "D1":
                 log_fn(current_time)
@@ -81,14 +78,13 @@ class Distributor:
         total = sum(self.stock[p] for p in PRODUCTS)
         self.cost_storage_per_day[day_index] += total
 
-    def collect_all_demand_into_orders(self):
+    def collect_all_demand_into_orders(self, day_index):
         for product, missed in self.missed_wholesaler_orders.items():
-            sold_reorder = self.stock_sold_to_reorder[product]
-            total_order = missed + sold_reorder
+            sold_prev_day = self.sales_per_day[day_index - 1][product] if day_index > 0 else 0
+            total_order = missed + sold_prev_day
             if total_order > 0:
                 self.orders_for_factories.append({"product": product, "quantity": total_order})
         self.missed_wholesaler_orders = {p: 0 for p in PRODUCTS}
-        self.stock_sold_to_reorder = {p: 0 for p in PRODUCTS}
 
     def send_orders_with_lead_time_priority(self, factories, day_index, current_time, schedule_delivery_fn):
         new_postponed = []
@@ -204,7 +200,7 @@ class Simulation:
                 distributor.plan_initial_stock_order(day)
         else:
             for distributor in self.distributors.values():
-                distributor.collect_all_demand_into_orders()
+                distributor.collect_all_demand_into_orders(day)
         # send orders using lead-time priority
         for distributor in self.distributors.values():
             distributor.send_orders_with_lead_time_priority(self.factories, day, self.current_time, self.schedule_delivery)
