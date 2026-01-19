@@ -2,6 +2,7 @@ import random
 import heapq
 import numpy as np
 
+# Products catalog
 PRODUCTS = [
     "p1",
     "p2",
@@ -17,6 +18,7 @@ PRODUCTS = [
     "p12",
 ]
 
+# Which products each factory can produce
 FACTORY_PRODUCTS = {
     "F1": ["p1", "p2", "p3", "p4", "p5", "p6"],
     "F2": ["p7", "p8", "p9", "p10", "p11", "p12"],
@@ -24,6 +26,7 @@ FACTORY_PRODUCTS = {
     "F4": ["p10", "p11", "p12", "p1", "p2", "p3"],
 }
 
+# Lead times (in hours) from factories to each distributor
 LEAD_TIMES = {
     "D1": {"F1": 16, "F2": 22, "F3": 20, "F4": 12},
     "D2": {"F1": 15, "F2": 16, "F3": 13, "F4": 19},
@@ -31,22 +34,26 @@ LEAD_TIMES = {
     "D4": {"F1": 22, "F2": 13, "F3": 16.5, "F4": 18},
 }
 
+# Simulation horizon: 30 days (in hours)
 TOTAL_DAYS = 30
-END_TIME = TOTAL_DAYS * 24
+END_TIME = TOTAL_DAYS * 24 # 720 hours
 
 
 class Factory:
+    # Factory holds static product capability and current stock; produces items stochastically over time and exposes stock for immediate pulls.
     def __init__(self, name, products):
         self.name = name
         self.products_produced = list(products)
         self.stock = {p: 0 for p in self.products_produced}
 
     def produce_one_product(self):
+        # Choose a random product the factory can make and increment stock
         chosen = random.choice(self.products_produced)
         self.stock[chosen] += 1
 
 
 class Distributor:
+    # Distributor holds inventory for all products, tracks missed orders, aggregates daily demand into factory orders, and applies lead-time priority when sourcing from factories. Postponed orders roll forward.
     def __init__(self, name):
         self.name = name
         self.stock = {p: 0 for p in PRODUCTS}
@@ -61,6 +68,7 @@ class Distributor:
         self.total_cost_per_day = {d: 0 for d in range(TOTAL_DAYS)}
 
     def receive_wholesaler_order(self, product, current_time, day_index, log_fn):
+        # Fulfill immediately if stock exists; otherwise record missed demand
         if self.stock.get(product) > 0:
             self.stock[product] -= 1
             self.sales_per_day[day_index][product] += 1
@@ -70,15 +78,18 @@ class Distributor:
             self.missed_wholesaler_orders[product] += 1
 
     def plan_initial_stock_order(self, day_index):
+        # On day 7, seed baseline inventory for each product
         if day_index == 7:
             for p in PRODUCTS:
                 self.orders_for_factories.append({"product": p, "quantity": 10})
 
     def calculate_storage_costs(self, day_index):
+        # Storage cost is proportional to total units held that day
         total = sum(self.stock[p] for p in PRODUCTS)
         self.cost_storage_per_day[day_index] += total
 
     def collect_all_demand_into_orders(self, day_index):
+        # Aggregate missed demand + previous day's sales into factory orders
         for product, missed in self.missed_wholesaler_orders.items():
             sold_prev_day = self.sales_per_day[day_index - 1][product] if day_index > 0 else 0
             total_order = missed + sold_prev_day
@@ -87,6 +98,8 @@ class Distributor:
         self.missed_wholesaler_orders = {p: 0 for p in PRODUCTS}
 
     def send_orders_with_lead_time_priority(self, factories, day_index, current_time, schedule_delivery_fn):
+        # Try to fulfill each order by pulling from the shortest lead-time
+        # factory that has enough stock; otherwise postpone to next day.
         new_postponed = []
         for order in self.orders_for_factories:
             product = order["product"]
@@ -104,7 +117,7 @@ class Distributor:
                     lead_hours = LEAD_TIMES[self.name][f]
                     delivery_time = current_time + lead_hours
                     schedule_delivery_fn(delivery_time, self.name, product, quantity)
-                    # cost proportional to lead time (same rule as other tasks)
+                    # cost = 10€ per hour of delivery per order
                     self.cost_per_delivery_per_day[day_index][product] += 10 * lead_hours
                     fulfilled = True
                     break
@@ -115,17 +128,20 @@ class Distributor:
         self.orders_for_factories = new_postponed
 
     def receive_delivery(self, product, quantity, current_time, day_index, log_fn):
+        # Increase stock upon delivery and log D1 stock timeline for plotting
         self.stock[product] += quantity
         if self.name == "D1":
             log_fn(current_time)
 
     def calculate_total_costs_per_day(self, day_index):
+        # Total = delivery cost (lead-time weighted) + storage cost
         delivery_costs = sum(self.cost_per_delivery_per_day[day_index].values())
         storage_costs = self.cost_storage_per_day[day_index]
         self.total_cost_per_day[day_index] = delivery_costs + storage_costs
 
 
 class Wholesalers:
+    # Randomly select a distributor and product during the day, generating wholesaler demand that the distributor attempts to fulfill immediately.
     def create_order(self, distributors, current_time, day_index, log_fn):
         distributors_list = list(distributors.values())
         distributor = random.choice(distributors_list)
@@ -134,6 +150,7 @@ class Wholesalers:
 
 
 class Simulation:
+    # Orchestrates event-driven simulation: factory production, deliveries, wholesaler orders, and daily aggregation/costing, over 30 days.
     def __init__(self):
         self.factories = {name: Factory(name, FACTORY_PRODUCTS[name]) for name in FACTORY_PRODUCTS}
         self.distributors = {name: Distributor(name) for name in ["D1", "D2", "D3", "D4"]}
@@ -144,36 +161,43 @@ class Simulation:
         self.event_counter = 0
 
     def log_d1_stock(self, time_value):
+        # Track D1 total stock changes for later visualization/analysis
         total_stock = sum(self.distributors["D1"].stock[p] for p in self.distributors["D1"].stock)
         self.d1_stock_log.append((time_value, total_stock))
 
     def schedule_event(self, time_value, event_type, data):
+        # Push a new event (with unique suffix) into the priority queue
         self.event_counter += 1
         new_type = event_type + "_" + str(self.event_counter)
         heapq.heappush(self.event_queue, (time_value, new_type, data))
 
     def schedule_next_factory_production(self, factory_name, base_time):
+        # Next production time sampled from exponential distribution (mean 600s)
         delta_seconds = random.expovariate(1 / 600)
         next_time = base_time + (delta_seconds / 3600.0)
         if next_time <= END_TIME:
             self.schedule_event(next_time, "factory_production", {"factory": factory_name})
 
     def schedule_delivery(self, delivery_time, distributor, product, quantity):
+        # Delivery events occur after lead time, if still within horizon
         if delivery_time <= END_TIME:
             self.schedule_event(delivery_time, "delivery", {"distributor": distributor, "product": product, "quantity": quantity})
 
     def schedule_next_wholesaler_order(self, base_time):
+        # Random gap (uniform 600–3600s) between wholesaler orders
         delta_hours = random.uniform(600, 3600) / 3600.0
         next_time = base_time + delta_hours
         if next_time <= END_TIME:
             self.schedule_event(next_time, "wholesaler_order", {})
 
     def handle_factory_production(self, data):
+        # Factory produces one unit and schedules its next production
         name = data["factory"]
         self.factories[name].produce_one_product()
         self.schedule_next_factory_production(name, self.current_time)
 
     def handle_delivery(self, data):
+        # Apply delivery to distributor inventory and log if D1
         dist_name = data["distributor"]
         product = data["product"]
         quantity = data["quantity"]
@@ -181,11 +205,13 @@ class Simulation:
         self.distributors[dist_name].receive_delivery(product, quantity, self.current_time, day_index, self.log_d1_stock)
 
     def handle_wholesaler_order(self):
+        # Generate a wholesaler order and schedule the next one
         day_index = int(self.current_time // 24)
         self.wholesalers.create_order(self.distributors, self.current_time, day_index, self.log_d1_stock)
         self.schedule_next_wholesaler_order(self.current_time)
 
     def handle_daily_order_event(self, data):
+        # Daily operations: stock totals, storage cost, initial seeding, demand aggregation, lead-time-priority sourcing, and cost tally.
         day = data["day"]
         # per-day stock total
         for distributor in self.distributors.values():
@@ -209,6 +235,7 @@ class Simulation:
             distributor.calculate_total_costs_per_day(day)
 
     def first_events(self):
+        # Bootstrap initial factory production, daily events, first wholesaler order, and initial D1 stock log.
         for name in self.factories:
             self.schedule_next_factory_production(name, 0)
         for d in range(7, TOTAL_DAYS):
